@@ -12,8 +12,8 @@ rr.init("autonomous_racing", spawn=True)
 rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Y_UP, static=True)
 
 # Generate track
-# track = generate_track(n_points=60, n_regions=20, min_bound=0., max_bound=150., mode="extend", seed=42)
-track = load_track("FSG")
+track = generate_track(n_points=60, n_regions=20, min_bound=0., max_bound=150., mode="extend")
+# track = load_track("FSG")
 
 # Initalize bicycle model
 vehicle = NonlinearBicycleModel()
@@ -42,7 +42,7 @@ cones_right_3d = np.c_[cones_right, np.zeros(len(cones_right))]
 rr.log("track/cones_left", rr.Points3D(cones_left_3d, colors=[0, 0, 255], radii=0.15), static=True)
 rr.log("track/cones_right", rr.Points3D(cones_right_3d, colors=[255, 255, 0], radii=0.15), static=True)
 
-lap_counter = -1
+lap_counter = 0
 lap_timer = time.time()
 t = 0
 while lap_counter < 1:
@@ -68,19 +68,6 @@ while lap_counter < 1:
         vehicle_state=x,
         laps_completed=lap_counter
     )
-
-    # # Check path validity
-    # path_max_curvature = np.abs(path['curvature']).max()
-    # if path_max_curvature > 10.0:
-    #     x = vehicle.step(x, np.array([steer_angle, 0.1]), dt)
-    #     print("Path curvature exceeded: ", path_max_curvature)
-    #     continue
-
-    angle_diff = np.arctan2(np.sin(path['theta'][0] - x[2]), np.cos(path['theta'][0] - x[2]))
-    if angle_diff > np.pi / 2:
-        x = vehicle.step(x, np.array([steer_angle, 0.1]), dt)
-        print("Path heading difference too large")
-        continue
 
     steer_angle, _ = controller.update(
         vehicle_state=x,

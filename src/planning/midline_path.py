@@ -92,7 +92,7 @@ class MidlinePath:
 
         return filtered_cones
 
-    def delauney_midpoints(self, x1, y1, x2, y2):
+    def delauney_midpoints(self, x1, y1, x2, y2, vehicle_pos, vehicle_heading):
         """
         Find midpoints using Delauney triangulation.
         Midpoints are the centerpoints of vertices where the 
@@ -140,19 +140,15 @@ class MidlinePath:
             _valid_vertice(cone1, cone3)
             _valid_vertice(cone2, cone3)
         
-        # Sort midpoints by finding the closest midpoint to the previous midpoint
-        sorted_midpoints_x = []
-        sorted_midpoints_y = []
-        first_midpoint = tuple((np.array([x1[0], y1[0]]) + np.array([x2[0], y2[0]])) / 2)
-        if first_midpoint in midpoints:
-            midpoints.remove(first_midpoint)
+        # Sort midpoints by projection onto the vehicle heading vector.
+        # This orders them by how far ahead they are along the track direction
+        heading_vec = np.array([np.cos(vehicle_heading), np.sin(vehicle_heading)])
+        midpoints_arr = np.array(midpoints)
+        projections = (midpoints_arr - np.array(vehicle_pos)) @ heading_vec
+        order = np.argsort(projections)
 
-        for i in range(-1, len(midpoints) - 1):
-            node = first_midpoint if i == -1 else (sorted_midpoints_x[i], sorted_midpoints_y[i])
-            index = _closest_node(node, midpoints)
-            sorted_midpoints_x.append(midpoints[index][0])
-            sorted_midpoints_y.append(midpoints[index][1])
-            midpoints.remove(midpoints[index])
+        sorted_midpoints_x = [midpoints[i][0] for i in order]
+        sorted_midpoints_y = [midpoints[i][1] for i in order]
 
         return sorted_midpoints_x, sorted_midpoints_y, vertices
             
@@ -182,7 +178,7 @@ class MidlinePath:
         y_pos_right_cones = right_cones[:, 1].tolist()  
 
         # Find midpoints using Delaunay triangulation
-        midpoints_x, midpoints_y, vertices = self.delauney_midpoints(x_pos_left_cones, y_pos_left_cones, x_pos_right_cones, y_pos_right_cones)
+        midpoints_x, midpoints_y, vertices = self.delauney_midpoints(x_pos_left_cones, y_pos_left_cones, x_pos_right_cones, y_pos_right_cones, vehicle_pos=vehicle_pos, vehicle_heading=vehicle_heading)
 
         # Save first midpoint of every iteration, if not saved already
         # and only if midpoint is behind the car
