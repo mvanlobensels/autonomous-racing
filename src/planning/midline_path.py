@@ -154,7 +154,7 @@ class MidlinePath:
             sorted_midpoints_y.append(midpoints[index][1])
             midpoints.remove(midpoints[index])
 
-        return sorted_midpoints_x, sorted_midpoints_y
+        return sorted_midpoints_x, sorted_midpoints_y, vertices
             
     def compute_midline(self, left_cones, right_cones, vehicle_state, laps_completed):
         """
@@ -182,7 +182,7 @@ class MidlinePath:
         y_pos_right_cones = right_cones[:, 1].tolist()  
 
         # Find midpoints using Delaunay triangulation
-        midpoints_x, midpoints_y = self.delauney_midpoints(x_pos_left_cones, y_pos_left_cones, x_pos_right_cones, y_pos_right_cones)
+        midpoints_x, midpoints_y, vertices = self.delauney_midpoints(x_pos_left_cones, y_pos_left_cones, x_pos_right_cones, y_pos_right_cones)
 
         # Save first midpoint of every iteration, if not saved already
         # and only if midpoint is behind the car
@@ -224,13 +224,13 @@ class MidlinePath:
             theta = theta[index::]
             curvature = curvature[index::]
 
-        # Return reference path as dictionary
-        return {
+        path = {
             'x': x,
             'y': y,
             'theta': theta,
             'curvature': curvature
         }
+        return path, vertices
 
     def full_track_midline(self):
         """
@@ -260,7 +260,7 @@ class MidlinePath:
             'y': y,
             'theta': theta,
             'curvature': curvature
-        }
+        }, []
 
     def update(self, left_cones, right_cones, vehicle_state, laps_completed=0):
         """

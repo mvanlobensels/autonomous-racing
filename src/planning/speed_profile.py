@@ -1,31 +1,28 @@
 import numpy as np
 from scipy import signal
-import matplotlib.pyplot as plt
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class VehicleParameters:
+    a_lat_max = 5  # [m/s^2]
+    a_forward_max = 10
+    a_back_max = -5
+    v_max = 20
+    find_peaks_prominence = 0.007
+    window_width = 5
+    shift = 2
 
 class SpeedProfile:
     """
     Generates the speed profile of a given reference path.
     """
     
-    def __init__(self, x: np.array, y: np.array, k: np.array, params: dict):
+    def __init__(self, params: Optional[VehicleParameters] = None):
 
-        # Set arguments 
-        self._x                      = x
-        self._y                      = y
-        self._curvature_signed       = k
-        self._curvature              = np.abs(k)
-        self._radius_of_curvature    = 1 / (self._curvature + 1e-5)   
+        self.params = params if params is not None else VehicleParameters()
 
-        # Load parameters
-        self._maximum_lateral_accel  = params['model']['car']['maximum_lateral_accel']
-        self._maximum_forward_accel  = params['model']['car']['maximum_forward_accel']
-        self._maximum_backward_accel = params['model']['car']['maximum_backward_accel']
-        self._maximum_velocity       = params['model']['car']['maximum_velocity']
-        self._find_peaks_prominence  = params['planning']['find_peaks_prominence']
-        self._window_width           = params['planning']['window_width']
-        self._shift                  = params['planning']['shift']
-
-        self._c1 = 1. / self._maximum_lateral_accel**2
+        self._c1 = 1. / self.params.a_lat_max**2
         self._distances = [self.calculate_arc_length(self._x[i], self._y[i], self._x[i+1], self._y[i+1], self._radius_of_curvature[i]) for i in range(len(self._x) - 1)]
     
     def calculate_arc_length(self, x0, y0, x1, y1, R):
