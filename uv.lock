@@ -20,6 +20,7 @@ dependencies = [
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pyyaml" },
+    { name = "random-track-generator" },
     { name = "rerun-sdk" },
     { name = "scipy" },
     { name = "shapely" },
@@ -31,6 +32,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.5.0" },
     { name = "numpy", specifier = ">=1.21.0,<2.0" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "random-track-generator", specifier = ">=1.1.0" },
     { name = "rerun-sdk", specifier = ">=0.20.0" },
     { name = "scipy", specifier = ">=1.8.1" },
     { name = "shapely", specifier = ">=2.0.1" },
@@ -583,6 +585,22 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/da/92/1446574745d74df0c92e6aa4a7b0b3130706a4142b2d1a5869f2eaa423c6/pyyaml-6.0.3-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:16249ee61e95f858e83976573de0f5b2893b3677ba71c9dd36b9cf8be9ac6d65", size = 829923, upload-time = "2025-09-25T21:32:54.537Z" },
     { url = "https://files.pythonhosted.org/packages/f0/7a/1c7270340330e575b92f397352af856a8c06f230aa3e76f86b39d01b416a/pyyaml-6.0.3-cp314-cp314t-win_amd64.whl", hash = "sha256:4ad1906908f2f5ae4e5a8ddfce73c320c2a1429ec52eafd27138b7f1cbe341c9", size = 174062, upload-time = "2025-09-25T21:32:55.767Z" },
     { url = "https://files.pythonhosted.org/packages/f1/12/de94a39c2ef588c7e6455cfbe7343d3b2dc9d6b6b2f40c4c6565744c873d/pyyaml-6.0.3-cp314-cp314t-win_arm64.whl", hash = "sha256:ebc55a14a21cb14062aa4162f906cd962b28e2e9ea38f9b4391244cd8de4ae0b", size = 149341, upload-time = "2025-09-25T21:32:56.828Z" },
+]
+
+[[package]]
+name = "random-track-generator"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "gpxpy" },
+    { name = "numpy" },
+    { name = "pyyaml" },
+    { name = "scipy" },
+    { name = "shapely" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e4/be/79f54a19f77239911bde6c088080c81a0340e4f4b80e3cc2b056e95d076c/random_track_generator-1.1.0.tar.gz", hash = "sha256:fb056aff1f56c12eff7a52f3de4073bbb76e9ad063f07ad1668da78318d931f1", size = 17311, upload-time = "2026-03-03T20:00:20.848Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/65/e2/a14eda8a8fcd10ca369f455398093e65f9b2614749d2ebb55bd0823c54c7/random_track_generator-1.1.0-py3-none-any.whl", hash = "sha256:655221abc3ffc8b98cf4944ea970ec7d5e12a5d51dcd48475a41b59a0624ebd7", size = 17195, upload-time = "2026-03-03T20:00:19.753Z" },
 ]
 
 [[package]]

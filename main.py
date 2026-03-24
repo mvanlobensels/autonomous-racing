@@ -2,7 +2,8 @@ import rerun as rr
 import numpy as np
 import time
 
-from third_party.random_track_generator import generate_track, load_track
+
+from random_track_generator import generate_track, load_track
 from src.simulation.bicycle_model import NonlinearBicycleModel
 from src.planning.midline_path import MidlinePath
 from src.control.steering_controller import StanleyController
@@ -12,7 +13,8 @@ rr.init("autonomous_racing", spawn=True)
 rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Y_UP, static=True)
 
 # Generate track
-track = generate_track(n_points=60, n_regions=20, min_bound=0., max_bound=150., mode="extend")
+track = generate_track('medium')
+# track = generate_track(n_points=60, n_regions=20, min_bound=0., max_bound=150., mode="extend")
 # track = load_track("FSG")
 
 # Initalize bicycle model
