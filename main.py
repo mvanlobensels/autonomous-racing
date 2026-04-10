@@ -25,9 +25,9 @@ rr.init("autonomous_racing", spawn=True)
 rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Y_UP, static=True)
 
 # Generate track
-track = generate_track('medium')
+# track = generate_track('medium')
 # track = generate_track(n_points=60, n_regions=20, min_bound=0., max_bound=150., mode="extend")
-# track = load_track("FSG")
+track = load_track("FSG")
 
 # Initalize bicycle model
 vehicle = NonlinearBicycleModel()
@@ -56,7 +56,7 @@ ald = AldBoundaryEstimator(
 
 # Initialize speed profile generator and velocity controller
 speed_profiler = SpeedProfile()
-vel_controller = VelocityController(kp_throttle=0.3, kp_brake=0.8)
+vel_controller = VelocityController(kp_throttle=0.3, kp_brake=0.8, max_throttle=0.2, max_brake=0.8)
 
 controller = StanleyController(
     k=1.0,
@@ -75,7 +75,12 @@ rr.log("track/cones_right", rr.Points3D(cones_right_3d, colors=[255, 255, 0], ra
 lap_counter = 0
 lap_timer = time.time()
 t = 0
-while lap_counter < 1:
+
+# Full-track speed profile, computed once after the first lap
+full_track_path = None
+full_track_speed_profile = None
+
+while lap_counter < 2:
     rr.set_time("step", sequence=t)
 
     vehicle_pos = x[:2]
@@ -93,26 +98,20 @@ while lap_counter < 1:
     # ------------------------------------------------------------------
     # ALD: estimate ordered track boundaries from combined visible cones
     # ------------------------------------------------------------------
-    inner_cones = np.empty((0, 2))
-    outer_cones = np.empty((0, 2))
-
-    if len(cones_left_nearby) + len(cones_right_nearby) >= 4:
+    if planner.exploration_mode and len(cones_left_nearby) + len(cones_right_nearby) >= 4:
+        n_left = len(cones_left_nearby)
         all_cones = np.vstack([cones_left_nearby, cones_right_nearby])
         inner_ix, outer_ix, _ = ald.update(all_cones, allow_closure=False)
-        if len(inner_ix) >= 2:
-            inner_cones = all_cones[inner_ix]
-        if len(outer_ix) >= 2:
-            outer_cones = all_cones[outer_ix]
 
-        # Visualize ALD boundaries in Rerun
-        if len(inner_cones) >= 2:
-            inner_3d = np.c_[inner_cones, np.zeros(len(inner_cones))]
-            rr.log("planning/boundary_inner", rr.LineStrips3D([inner_3d], colors=[255, 165, 0]))
-            rr.log("planning/boundary_inner_pts", rr.Points3D(inner_3d, colors=[255, 165, 0], radii=0.2))
-        if len(outer_cones) >= 2:
-            outer_3d = np.c_[outer_cones, np.zeros(len(outer_cones))]
-            rr.log("planning/boundary_outer", rr.LineStrips3D([outer_3d], colors=[0, 200, 200]))
-            rr.log("planning/boundary_outer_pts", rr.Points3D(outer_3d, colors=[0, 200, 200], radii=0.2))
+        for name, ix in [("boundary_inner", inner_ix), ("boundary_outer", outer_ix)]:
+            if len(ix) < 2:
+                continue
+            # Colour matches the cone side that makes up the majority of this boundary
+            left_majority = sum(i < n_left for i in ix) >= len(ix) / 2
+            color = [0, 0, 255] if left_majority else [255, 255, 0]
+            pts_3d = np.c_[all_cones[ix], np.zeros(len(ix))]
+            rr.log(f"planning/{name}", rr.LineStrips3D([pts_3d], colors=color))
+            rr.log(f"planning/{name}_pts", rr.Points3D(pts_3d, colors=color, radii=0.2))
 
     # ------------------------------------------------------------------
     # Midline planner
@@ -128,22 +127,46 @@ while lap_counter < 1:
     # Speed profile
     # ------------------------------------------------------------------
     throttle = 0.1  # fallback constant throttle
-    if path is not None:
-        current_speed = float(np.sqrt(x[3]**2 + x[4]**2))
-        speed_result = speed_profiler.update(path, current_velocity=current_speed,
-                                             laps_completed=lap_counter)
-        velocity_profile = speed_result['velocity']
+    current_speed = float(np.sqrt(x[3]**2 + x[4]**2))
 
-        # Find the closest path point and read the target speed there
+    if not planner.exploration_mode:
+        # Trackdrive mode: compute full-track speed profile once, then reuse every step
+        if full_track_speed_profile is None and path is not None:
+            full_track_path = path
+            sp_result = speed_profiler.update(full_track_path, current_velocity=0.0,
+                                              laps_completed=lap_counter)
+            full_track_speed_profile = sp_result['velocity']
+            print(f"Full-track speed profile computed: "
+                  f"{full_track_speed_profile.min():.1f} – {full_track_speed_profile.max():.1f} m/s")
+            vel_controller.max_throttle = 1.0
+
+            # Log at this timestep so it appears from lap 2 onwards in the timeline
+            colors = _speed_to_color(full_track_speed_profile, v_max=speed_profiler.params.v_max)
+            profile_3d = np.c_[full_track_path['x'], full_track_path['y'],
+                                np.zeros(len(full_track_path['x']))]
+            rr.log("planning/speed_profile", rr.Points3D(profile_3d, colors=colors, radii=0.15))
+
+        if full_track_speed_profile is not None:
+            path_pts = np.column_stack([full_track_path['x'], full_track_path['y']])
+            closest_idx = int(np.argmin(np.linalg.norm(path_pts - vehicle_pos, axis=1)))
+            n = len(full_track_speed_profile)
+            lookahead_idx = (closest_idx + 20) % n
+            target_speed = float(full_track_speed_profile[lookahead_idx])
+            throttle = vel_controller.update(current_speed, target_speed)
+
+    elif path is not None:
+        # Exploration mode: recompute speed profile each step from the local path
+        sp_result = speed_profiler.update(path, current_velocity=current_speed,
+                                          laps_completed=lap_counter)
+        velocity_profile = sp_result['velocity']
+
         path_pts = np.column_stack([path['x'], path['y']])
-        dists = np.linalg.norm(path_pts - vehicle_pos, axis=1)
-        closest_idx = int(np.argmin(dists))
+        closest_idx = int(np.argmin(np.linalg.norm(path_pts - vehicle_pos, axis=1)))
         lookahead_idx = min(closest_idx + 3, len(velocity_profile) - 1)
         target_speed = float(velocity_profile[lookahead_idx])
-
         throttle = vel_controller.update(current_speed, target_speed)
 
-        # Visualize speed profile: color each path point by target speed
+        # Visualize local speed profile
         colors = _speed_to_color(velocity_profile, v_max=speed_profiler.params.v_max)
         profile_3d = np.c_[path['x'], path['y'], np.zeros(len(path['x']))]
         rr.log("planning/speed_profile", rr.Points3D(profile_3d, colors=colors, radii=0.15))
@@ -151,7 +174,8 @@ while lap_counter < 1:
     # ------------------------------------------------------------------
     # Steering controller
     # ------------------------------------------------------------------
-    steer_angle, _ = controller.update(vehicle_state=x, path=path)
+    steering_path = full_track_path if (not planner.exploration_mode and full_track_path is not None) else path
+    steer_angle, _ = controller.update(vehicle_state=x, path=steering_path)
 
     # ------------------------------------------------------------------
     # Step vehicle dynamics
@@ -182,9 +206,7 @@ while lap_counter < 1:
         colors=[255, 255, 0]
     ))
 
-    if path is not None:
-        path_3d = np.c_[path['x'], path['y'], np.zeros(len(path['x']))]
-        rr.log("planning/midline", rr.LineStrips3D([path_3d], colors=[0, 255, 0]))
+
 
     line_segments = []
     for cone_a, cone_b in vertices:

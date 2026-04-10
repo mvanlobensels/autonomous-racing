@@ -6,9 +6,9 @@ from typing import Optional
 
 @dataclass
 class VehicleParameters:
-    a_lat_max: float = 5.0       # max lateral acceleration [m/s^2]
-    a_forward_max: float = 10.0  # max forward acceleration [m/s^2]
-    a_back_max: float = -5.0     # max braking acceleration [m/s^2] (negative)
+    a_lat_max: float = 8.0       # max lateral acceleration [m/s^2]
+    a_forward_max: float = 5.0  # max forward acceleration [m/s^2]
+    a_back_max: float = -10.0     # max braking acceleration [m/s^2] (negative)
     v_max: float = 20.0          # max velocity [m/s]
     find_peaks_prominence: float = 0.007
     window_width: int = 5
