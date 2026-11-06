@@ -95,9 +95,7 @@ while lap_counter < 2:
     cones_left_nearby = cones_left[np.linalg.norm(cones_left - vehicle_pos, axis=1) <= 10.0]
     cones_right_nearby = cones_right[np.linalg.norm(cones_right - vehicle_pos, axis=1) <= 10.0]
 
-    # ------------------------------------------------------------------
     # ALD: estimate ordered track boundaries from combined visible cones
-    # ------------------------------------------------------------------
     if planner.exploration_mode and len(cones_left_nearby) + len(cones_right_nearby) >= 4:
         n_left = len(cones_left_nearby)
         all_cones = np.vstack([cones_left_nearby, cones_right_nearby])
@@ -113,9 +111,7 @@ while lap_counter < 2:
             rr.log(f"planning/{name}", rr.LineStrips3D([pts_3d], colors=color))
             rr.log(f"planning/{name}_pts", rr.Points3D(pts_3d, colors=color, radii=0.2))
 
-    # ------------------------------------------------------------------
     # Midline planner
-    # ------------------------------------------------------------------
     path, vertices = planner.update(
         left_cones=cones_left_nearby,
         right_cones=cones_right_nearby,
@@ -123,9 +119,7 @@ while lap_counter < 2:
         laps_completed=lap_counter
     )
 
-    # ------------------------------------------------------------------
     # Speed profile
-    # ------------------------------------------------------------------
     throttle = 0.1  # fallback constant throttle
     current_speed = float(np.sqrt(x[3]**2 + x[4]**2))
 
@@ -171,15 +165,11 @@ while lap_counter < 2:
         profile_3d = np.c_[path['x'], path['y'], np.zeros(len(path['x']))]
         rr.log("planning/speed_profile", rr.Points3D(profile_3d, colors=colors, radii=0.15))
 
-    # ------------------------------------------------------------------
     # Steering controller
-    # ------------------------------------------------------------------
     steering_path = full_track_path if (not planner.exploration_mode and full_track_path is not None) else path
     steer_angle, _ = controller.update(vehicle_state=x, path=steering_path)
 
-    # ------------------------------------------------------------------
     # Step vehicle dynamics
-    # ------------------------------------------------------------------
     x = vehicle.step(x, np.array([steer_angle, throttle]), dt)
     print(
         f"lap: {lap_counter}  x: {x[0]:.2f}  y: {x[1]:.2f}"
@@ -188,9 +178,7 @@ while lap_counter < 2:
         f"  throttle: {throttle:.2f}"
     )
 
-    # ------------------------------------------------------------------
     # Rerun visualization
-    # ------------------------------------------------------------------
     yaw = x[2]
     quat = [0.0, 0.0, np.sin(yaw / 2), np.cos(yaw / 2)]
 
