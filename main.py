@@ -8,9 +8,10 @@ from src.simulation.lap_timer import LapTimer
 from src.simulation.bicycle_model import NonlinearBicycleModel
 from src.planning.midline_path import MidlinePath
 from src.planning.lane_detector import AldBoundaryEstimator
-from src.planning.speed_profile import SpeedProfile
-from src.control.steering_controller import StanleyController
-from src.control.velocity_controller import VelocityController
+from src.planning.track_reference import TrackReference
+from src.planning.global_trajectory import GlobalTrajectoryOptimizer
+from src.control.spatial_model import SpatialKinematicModel
+from src.control.mpc_controller import MPCController, MPCParameters
 
 
 def _speed_to_color(velocities: np.ndarray, v_max: float) -> np.ndarray:
@@ -35,6 +36,7 @@ vehicle = Car(
     initial_state=np.zeros(6),          # [x, y, psi, v_x, v_y, omega]
     model=NonlinearBicycleModel())
 dt = 0.1
+SENSOR_RANGE = 10.0  # [m] cone detection radius
 
 # Initialize midline planner
 planner = MidlinePath(
@@ -55,14 +57,18 @@ ald = AldBoundaryEstimator(
     outer_head_tangent=np.array([np.cos(vehicle.heading), np.sin(vehicle.heading)]),
 )
 
-# Initialize controllers
-speed_profile = SpeedProfile()
-vel_controller = VelocityController(kp_throttle=0.3, kp_brake=0.8, max_throttle=0.2, max_brake=0.8)
-steering_controller = StanleyController(
-    k=1.0,
-    k_soft=1.0,
-    max_steer=np.deg2rad(30.0)
-)
+# Planning model shared by the MPCs and the global trajectory optimiser
+model = SpatialKinematicModel(vehicle.model.params)
+
+# Exploration lap: MPC on the locally observed midline, horizon = visible path
+mpc_explore = MPCController(model, MPCParameters(N=20, ds=None, dt_control=dt))
+# Trackdrive: MPC on the mapped track, fixed 60 m horizon, warm-started from the global trajectory
+mpc_track = MPCController(model, MPCParameters(N=30, ds=2.0, dt_control=dt))
+global_optimizer = GlobalTrajectoryOptimizer(model)
+
+# Map of cones observed during the exploration lap (rounded position -> position)
+cone_map = {}
+trackdrive_ref = None
 
 # Plot full track cones (static)
 cones_left, cones_right = track.as_tuple()
@@ -74,22 +80,23 @@ rr.log("track/cones_right", rr.Points3D(cones_right_3d, colors=[255, 255, 0], ra
 
 lap_timer = LapTimer()
 t = 0
-
-# Full-track speed profile, computed once after the first lap
-full_track_path = None
-full_track_speed_profile = None
+lap_start_step = 0
 
 while lap_timer.lap < 2:
     rr.set_time("step", sequence=t)
 
+    lap_before = lap_timer.lap
     lap_timer.check_is_lap(vehicle.position)
+    if lap_timer.lap != lap_before:
+        print(f"Lap {lap_timer.lap} sim time: {(t - lap_start_step) * dt:.1f} s")
+        lap_start_step = t
 
-    # Detect cones within 10 m
-    cones_left_nearby = cones_left[np.linalg.norm(cones_left - vehicle.position, axis=1) <= 10.0]
-    cones_right_nearby = cones_right[np.linalg.norm(cones_right - vehicle.position, axis=1) <= 10.0]
+    # Detect cones within sensor range
+    cones_left_nearby = cones_left[np.linalg.norm(cones_left - vehicle.position, axis=1) <= SENSOR_RANGE]
+    cones_right_nearby = cones_right[np.linalg.norm(cones_right - vehicle.position, axis=1) <= SENSOR_RANGE]
 
     # ALD: estimate ordered track boundaries from combined visible cones
-    if planner.exploration_mode and len(cones_left_nearby) + len(cones_right_nearby) >= 4:
+    if lap_timer.lap == 0 and len(cones_left_nearby) + len(cones_right_nearby) >= 4:
         n_left = len(cones_left_nearby)
         all_cones = np.vstack([cones_left_nearby, cones_right_nearby])
         inner_ix, outer_ix, _ = ald.update(all_cones, allow_closure=False)
@@ -104,62 +111,58 @@ while lap_timer.lap < 2:
             rr.log(f"planning/{name}", rr.LineStrips3D([pts_3d], colors=color))
             rr.log(f"planning/{name}_pts", rr.Points3D(pts_3d, colors=color, radii=0.2))
 
-    # Midline planner
-    path, vertices = planner.update(
-        left_cones=cones_left_nearby,
-        right_cones=cones_right_nearby,
-        vehicle_state=vehicle.state,
-        laps_completed=lap_timer.lap
-    )
+    visible_cones = np.vstack([cones_left_nearby, cones_right_nearby])
 
-    # Speed profile
-    throttle = 0.1  # fallback constant throttle
+    if lap_timer.lap == 0:
+        # Exploration lap: build the cone map and drive with MPC on what is currently visible
+        for cone in visible_cones:
+            cone_map[(round(cone[0], 1), round(cone[1], 1))] = cone
 
-    if not planner.exploration_mode:
-        # Trackdrive mode: compute full-track speed profile once, then reuse every step
-        if full_track_speed_profile is None and path is not None:
-            full_track_path = path
-            sp_result = speed_profile.update(full_track_path, current_velocity=0.0,
-                                              laps_completed=lap_timer.lap)
-            full_track_speed_profile = sp_result['velocity']
-            print(f"Full-track speed profile computed: "
-                  f"{full_track_speed_profile.min():.1f} – {full_track_speed_profile.max():.1f} m/s")
-            vel_controller.max_throttle = 1.0
+        result = planner.update(
+            left_cones=cones_left_nearby,
+            right_cones=cones_right_nearby,
+            vehicle_state=vehicle.state,
+            laps_completed=lap_timer.lap
+        )
+        path, vertices = result if result is not None else (None, [])
+        local_ref = None
+        if path is not None and len(path['x']) > 2:
+            local_ref = TrackReference.from_path(path, visible_cones, closed=False)
+            midline_3d = np.c_[path['x'], path['y'], np.zeros(len(path['x']))]
+            rr.log("planning/local_midline", rr.LineStrips3D([midline_3d], colors=[200, 200, 200]))
 
-            # Log at this timestep so it appears from lap 2 onwards in the timeline
-            colors = _speed_to_color(full_track_speed_profile, v_max=speed_profile.params.v_max)
-            profile_3d = np.c_[full_track_path['x'], full_track_path['y'],
-                                np.zeros(len(full_track_path['x']))]
-            rr.log("planning/speed_profile", rr.Points3D(profile_3d, colors=colors, radii=0.15))
+        mpc = mpc_explore
+        steer_angle, accel, mpc_debug = mpc.update(vehicle.state, local_ref)
 
-        if full_track_speed_profile is not None:
-            path_pts = np.column_stack([full_track_path['x'], full_track_path['y']])
-            closest_idx = int(np.argmin(np.linalg.norm(path_pts - vehicle.position, axis=1)))
-            n = len(full_track_speed_profile)
-            lookahead_idx = (closest_idx + 20) % n
-            target_speed = float(full_track_speed_profile[lookahead_idx])
-            throttle = vel_controller.update(vehicle.velocity, target_speed)
+    else:
+        # Trackdrive: global min-time trajectory on the exploration-lap map, tracked by MPC
+        vertices = []
+        if trackdrive_ref is None:
+            midline, _ = planner.full_track_midline()
+            mapped_cones = np.array(list(cone_map.values()))
+            trackdrive_ref = TrackReference.from_path(midline, mapped_cones, closed=True)
+            global_traj = global_optimizer.optimize(trackdrive_ref)
+            print(f"Global trajectory: {global_traj['status']}, predicted lap time "
+                  f"{global_traj['lap_time']:.2f} s, solved in {global_traj['solve_time']:.1f} s "
+                  f"({len(mapped_cones)} mapped cones, track length {trackdrive_ref.length:.0f} m)")
+            if global_traj['status'] == 'ok':
+                trackdrive_ref.guess = global_traj
+                colors = _speed_to_color(global_traj['v'], v_max=model.lim.v_max)
+                line_3d = np.c_[global_traj['x'], global_traj['y'], np.zeros(len(global_traj['x']))]
+                rr.log("planning/global_trajectory", rr.Points3D(line_3d, colors=colors, radii=0.15))
+            mpc_track.set_last_command(mpc_explore.last_command)
 
-    elif path is not None:
-        # Exploration mode: recompute speed profile each step from the local path
-        sp_result = speed_profile.update(path, current_velocity=vehicle.velocity,
-                                          laps_completed=lap_timer.lap)
-        velocity_profile = sp_result['velocity']
+        mpc = mpc_track
+        steer_angle, accel, mpc_debug = mpc.update(vehicle.state, trackdrive_ref)
 
-        path_pts = np.column_stack([path['x'], path['y']])
-        closest_idx = int(np.argmin(np.linalg.norm(path_pts - vehicle.position, axis=1)))
-        lookahead_idx = min(closest_idx + 3, len(velocity_profile) - 1)
-        target_speed = float(velocity_profile[lookahead_idx])
-        throttle = vel_controller.update(vehicle.velocity, target_speed)
+    throttle = mpc.acceleration_to_throttle(accel, vehicle.state[3])
 
-        # Visualize local speed profile
-        colors = _speed_to_color(velocity_profile, v_max=speed_profile.params.v_max)
-        profile_3d = np.c_[path['x'], path['y'], np.zeros(len(path['x']))]
-        rr.log("planning/speed_profile", rr.Points3D(profile_3d, colors=colors, radii=0.15))
-
-    # Steering controller
-    steering_path = full_track_path if (not planner.exploration_mode and full_track_path is not None) else path
-    steer_angle, _ = steering_controller.update(vehicle_state=vehicle.state, path=steering_path)
+    if 'pred_xy' in mpc_debug:
+        pred = mpc_debug['pred_xy']
+        colors = _speed_to_color(mpc_debug['pred_v'], v_max=model.lim.v_max)
+        pred_3d = np.c_[pred, np.zeros(len(pred))]
+        rr.log("planning/mpc_prediction", rr.LineStrips3D([pred_3d], colors=[0, 255, 0]))
+        rr.log("planning/mpc_prediction_pts", rr.Points3D(pred_3d, colors=colors, radii=0.12))
 
     # Step vehicle dynamics
     u = np.array([steer_angle, throttle])
@@ -169,6 +172,8 @@ while lap_timer.lap < 2:
         f"  psi: {np.rad2deg(vehicle.heading):.1f}°"
         f"  v: {vehicle.velocity:.2f} m/s"
         f"  throttle: {throttle:.2f}"
+        f"  steer: {np.rad2deg(steer_angle):.1f}°  a: {accel:.2f} m/s²"
+        f"  mpc: {mpc_debug['status']} {1000 * mpc_debug.get('solve_time', 0.0):.0f} ms"
     )
 
     # Rerun visualization
@@ -199,8 +204,8 @@ while lap_timer.lap < 2:
     # Detection radius
     theta_circle = np.linspace(0, 2 * np.pi, 64)
     circle_3d = np.c_[
-        vehicle.x + 10.0 * np.cos(theta_circle),
-        vehicle.y + 10.0 * np.sin(theta_circle),
+        vehicle.x + SENSOR_RANGE * np.cos(theta_circle),
+        vehicle.y + SENSOR_RANGE * np.sin(theta_circle),
         np.zeros(64)
     ]
     rr.log("car/detection_radius", rr.LineStrips3D([circle_3d], colors=[128, 128, 128]))

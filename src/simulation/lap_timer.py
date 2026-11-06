@@ -2,14 +2,21 @@ import time
 import numpy as np
 
 class LapTimer:
-    def __init__(self):
+    """Counts a lap each time the car re-enters the start zone after having left it."""
+
+    def __init__(self, start_radius: float = 3.0, exit_radius: float = 5.0):
         self.lap = 0
         self.time = time.time()
+        self.start_radius = start_radius
+        self.exit_radius = exit_radius
+        self._left_start = False
 
     def check_is_lap(self, position):
-        if np.linalg.norm(np.zeros(2) - position) <= 3:
-            now = time.time()
-            if now - self.time > 2.0:
-                self.lap += 1
-                print(f"Lap {self.lap} completed")
-                self.time = now
+        distance = np.linalg.norm(position)
+        if distance > self.exit_radius:
+            self._left_start = True
+        elif distance <= self.start_radius and self._left_start:
+            self._left_start = False
+            self.lap += 1
+            print(f"Lap {self.lap} completed")
+            self.time = time.time()
