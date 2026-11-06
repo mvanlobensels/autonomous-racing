@@ -1,5 +1,11 @@
 # Autonomous racing
 
+<p align="center">
+    <img src="img/image.png"/>
+</p>
+
+Planning & control pipeline for an autonomous racing car.
+
 ## Install
 
 ```bash
