@@ -278,7 +278,7 @@ class NonlinearBicycleModel:
         else:
             # Negative throttle: braking (negative = deceleration)
             # Brake force already returns negative value
-            F_longitudinal = self.compute_brake_force(v_x, throttle)
+            F_longitudinal = self.compute_brake_force(v_x, abs(throttle))
 
         F_drag = self.compute_drag_force(v_x)
         F_roll = self.compute_rolling_resistance(v_x)
