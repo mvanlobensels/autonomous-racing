@@ -10,6 +10,9 @@ from src.planning.midline_path import MidlinePath
 from src.planning.lane_detector import AldBoundaryEstimator
 from src.planning.track_reference import TrackReference
 from src.planning.global_trajectory import GlobalTrajectoryOptimizer
+from src.planning.speed_profile import SpeedProfile
+from src.control.steering_controller import StanleyController
+from src.control.velocity_controller import VelocityController
 from src.control.spatial_model import SpatialKinematicModel
 from src.control.mpc_controller import MPCController, MPCParameters
 
@@ -57,11 +60,16 @@ ald = AldBoundaryEstimator(
     outer_head_tangent=np.array([np.cos(vehicle.heading), np.sin(vehicle.heading)]),
 )
 
-# Planning model shared by the MPCs and the global trajectory optimiser
+# Exploration lap: speed profile on the local midline, tracked by Stanley + P velocity controller
+speed_profile = SpeedProfile()
+vel_controller = VelocityController(kp_throttle=1.0, kp_brake=0.8, max_throttle=0.5, max_brake=0.8)
+steering_controller = StanleyController(k=1.0, k_soft=1.0, max_steer=np.deg2rad(30.0))
+steer_angle = 0.0
+explore_accel = 0.0  # measured longitudinal acceleration, used to seed the trackdrive MPC
+
+# Planning model shared by the MPC and the global trajectory optimiser
 model = SpatialKinematicModel(vehicle.model.params)
 
-# Exploration lap: MPC on the locally observed midline, horizon = visible path
-mpc_explore = MPCController(model, MPCParameters(N=20, ds=None, dt_control=dt))
 # Trackdrive: MPC on the mapped track, fixed 60 m horizon, warm-started from the global trajectory
 mpc_track = MPCController(model, MPCParameters(N=30, ds=2.0, dt_control=dt))
 global_optimizer = GlobalTrajectoryOptimizer(model)
@@ -70,19 +78,21 @@ global_optimizer = GlobalTrajectoryOptimizer(model)
 cone_map = {}
 trackdrive_ref = None
 
-# Plot full track cones (static)
+# Ground-truth cones (3D for visualisation)
 cones_left, cones_right = track.as_tuple()
 cones_left_3d = np.c_[cones_left, np.zeros(len(cones_left))]
 cones_right_3d = np.c_[cones_right, np.zeros(len(cones_right))]
 
-rr.log("track/cones_left", rr.Points3D(cones_left_3d, colors=[0, 0, 255], radii=0.15), static=True)
-rr.log("track/cones_right", rr.Points3D(cones_right_3d, colors=[255, 255, 0], radii=0.15), static=True)
+# Cones are only visualised once they have entered the sensor range
+seen_left = np.zeros(len(cones_left), dtype=bool)
+seen_right = np.zeros(len(cones_right), dtype=bool)
 
 lap_timer = LapTimer()
 t = 0
 lap_start_step = 0
+n_laps = 3
 
-while lap_timer.lap < 2:
+while lap_timer.lap < n_laps:
     rr.set_time("step", sequence=t)
 
     lap_before = lap_timer.lap
@@ -92,8 +102,17 @@ while lap_timer.lap < 2:
         lap_start_step = t
 
     # Detect cones within sensor range
-    cones_left_nearby = cones_left[np.linalg.norm(cones_left - vehicle.position, axis=1) <= SENSOR_RANGE]
-    cones_right_nearby = cones_right[np.linalg.norm(cones_right - vehicle.position, axis=1) <= SENSOR_RANGE]
+    in_range_left = np.linalg.norm(cones_left - vehicle.position, axis=1) <= SENSOR_RANGE
+    in_range_right = np.linalg.norm(cones_right - vehicle.position, axis=1) <= SENSOR_RANGE
+    cones_left_nearby = cones_left[in_range_left]
+    cones_right_nearby = cones_right[in_range_right]
+
+    # Log the cones seen so far (only when a new cone enters the sensor range)
+    if np.any(in_range_left & ~seen_left) or np.any(in_range_right & ~seen_right):
+        seen_left |= in_range_left
+        seen_right |= in_range_right
+        rr.log("track/cones_left", rr.Points3D(cones_left_3d[seen_left], colors=[0, 0, 255], radii=0.15))
+        rr.log("track/cones_right", rr.Points3D(cones_right_3d[seen_right], colors=[255, 255, 0], radii=0.15))
 
     # ALD: estimate ordered track boundaries from combined visible cones
     if lap_timer.lap == 0 and len(cones_left_nearby) + len(cones_right_nearby) >= 4:
@@ -113,8 +132,10 @@ while lap_timer.lap < 2:
 
     visible_cones = np.vstack([cones_left_nearby, cones_right_nearby])
 
+    mpc_debug = None
     if lap_timer.lap == 0:
-        # Exploration lap: build the cone map and drive with MPC on what is currently visible
+        # Autocross lap: build the cone map and track the visible midline with
+        # speed profile + Stanley steering + P velocity control
         for cone in visible_cones:
             cone_map[(round(cone[0], 1), round(cone[1], 1))] = cone
 
@@ -125,14 +146,23 @@ while lap_timer.lap < 2:
             laps_completed=lap_timer.lap
         )
         path, vertices = result if result is not None else (None, [])
-        local_ref = None
+
+        throttle = 0.0  # coast if no midline is available; steering holds its last value
         if path is not None and len(path['x']) > 2:
-            local_ref = TrackReference.from_path(path, visible_cones, closed=False)
             midline_3d = np.c_[path['x'], path['y'], np.zeros(len(path['x']))]
             rr.log("planning/local_midline", rr.LineStrips3D([midline_3d], colors=[200, 200, 200]))
 
-        mpc = mpc_explore
-        steer_angle, accel, mpc_debug = mpc.update(vehicle.state, local_ref)
+            velocity_profile = speed_profile.update(path, current_velocity=vehicle.velocity,
+                                                    laps_completed=lap_timer.lap)['velocity']
+            path_pts = np.column_stack([path['x'], path['y']])
+            closest_idx = int(np.argmin(np.linalg.norm(path_pts - vehicle.position, axis=1)))
+            lookahead_idx = min(closest_idx + 3, len(velocity_profile) - 1)
+            throttle = vel_controller.update(vehicle.velocity, float(velocity_profile[lookahead_idx]))
+            steer_angle, _ = steering_controller.update(vehicle_state=vehicle.state, path=path)
+
+            colors = _speed_to_color(velocity_profile, v_max=speed_profile.params.v_max)
+            profile_3d = np.c_[path['x'], path['y'], np.zeros(len(path['x']))]
+            rr.log("planning/speed_profile", rr.Points3D(profile_3d, colors=colors, radii=0.15))
 
     else:
         # Trackdrive: global min-time trajectory on the exploration-lap map, tracked by MPC
@@ -150,14 +180,13 @@ while lap_timer.lap < 2:
                 colors = _speed_to_color(global_traj['v'], v_max=model.lim.v_max)
                 line_3d = np.c_[global_traj['x'], global_traj['y'], np.zeros(len(global_traj['x']))]
                 rr.log("planning/global_trajectory", rr.Points3D(line_3d, colors=colors, radii=0.15))
-            mpc_track.set_last_command(mpc_explore.last_command)
+            # Seed the input-rate penalty with the exploration controllers' last command
+            mpc_track.set_last_command([steer_angle, explore_accel])
 
-        mpc = mpc_track
-        steer_angle, accel, mpc_debug = mpc.update(vehicle.state, trackdrive_ref)
+        steer_angle, accel, mpc_debug = mpc_track.update(vehicle.state, trackdrive_ref)
+        throttle = mpc_track.acceleration_to_throttle(accel, vehicle.state[3])
 
-    throttle = mpc.acceleration_to_throttle(accel, vehicle.state[3])
-
-    if 'pred_xy' in mpc_debug:
+    if mpc_debug is not None and 'pred_xy' in mpc_debug:
         pred = mpc_debug['pred_xy']
         colors = _speed_to_color(mpc_debug['pred_v'], v_max=model.lim.v_max)
         pred_3d = np.c_[pred, np.zeros(len(pred))]
@@ -166,14 +195,20 @@ while lap_timer.lap < 2:
 
     # Step vehicle dynamics
     u = np.array([steer_angle, throttle])
+    v_before = vehicle.velocity
     vehicle.step(u, dt)
+    if mpc_debug is None:
+        explore_accel = (vehicle.velocity - v_before) / dt
+        ctrl_info = f"a: {explore_accel:.2f} m/s²  ctrl: stanley"
+    else:
+        ctrl_info = (f"a: {accel:.2f} m/s²  mpc: {mpc_debug['status']} "
+                     f"{1000 * mpc_debug.get('solve_time', 0.0):.0f} ms")
     print(
         f"lap: {lap_timer.lap}  x: {vehicle.x:.2f}  y: {vehicle.y:.2f}"
         f"  psi: {np.rad2deg(vehicle.heading):.1f}°"
         f"  v: {vehicle.velocity:.2f} m/s"
         f"  throttle: {throttle:.2f}"
-        f"  steer: {np.rad2deg(steer_angle):.1f}°  a: {accel:.2f} m/s²"
-        f"  mpc: {mpc_debug['status']} {1000 * mpc_debug.get('solve_time', 0.0):.0f} ms"
+        f"  steer: {np.rad2deg(steer_angle):.1f}°  {ctrl_info}"
     )
 
     # Rerun visualization

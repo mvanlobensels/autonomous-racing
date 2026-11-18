@@ -1,7 +1,7 @@
 # Autonomous racing
 
 <p align="center">
-    <img src="img/image.png"/>
+    <img src="img/vid.gif" width="800">
 </p>
 
 Planning & control pipeline for an autonomous racing car.  
