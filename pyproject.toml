@@ -13,4 +13,5 @@ dependencies = [
      "shapely>=2.0.1",
      "rerun-sdk>=0.20.0",
      "random-track-generator>=1.1.0",
+     "casadi>=3.8.2",
 ]

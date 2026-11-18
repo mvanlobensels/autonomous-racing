@@ -16,6 +16,7 @@ name = "autonomous-racing"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "casadi" },
     { name = "gpxpy" },
     { name = "matplotlib" },
     { name = "numpy" },
@@ -28,6 +29,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "casadi", specifier = ">=3.8.2" },
     { name = "gpxpy", specifier = ">=1.5.0" },
     { name = "matplotlib", specifier = ">=3.5.0" },
     { name = "numpy", specifier = ">=1.21.0,<2.0" },
@@ -36,6 +38,25 @@ requires-dist = [
     { name = "rerun-sdk", specifier = ">=0.20.0" },
     { name = "scipy", specifier = ">=1.8.1" },
     { name = "shapely", specifier = ">=2.0.1" },
+]
+
+[[package]]
+name = "casadi"
+version = "3.8.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/93/d0/f314fa0cad00aec881a645d3cef25da776112cd0d6d9377b3e054728f167/casadi-3.8.2.tar.gz", hash = "sha256:d49d3a0cb27fe4787cee7e1e14b22de5fb5afd70189d829f194baf8cc2a344c7", size = 8166798, upload-time = "2026-10-27T07:18:04.521Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/e3/620f1c4159119fba62ddb49c5a214450ad9d4b5a3ef45959a0cb3768180e/casadi-3.8.2-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:7bd66af729e7984789142888607acfbdc1fe12f034a46b249faee3cffe759c1d", size = 55270219, upload-time = "2026-10-27T06:48:15.803Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/07/ccd0be6e2f5849e7943f71006006bbcba383460adc72e120c293a7c14c75/casadi-3.8.2-cp311-abi3-macosx_11_0_x86_64.macosx_11_0_intel.whl", hash = "sha256:cb55c3fd2a0bf3289f71e26e967448a0e5941d732a2d86d964533876767b56d5", size = 55145889, upload-time = "2026-10-27T06:50:27.578Z" },
+    { url = "https://files.pythonhosted.org/packages/32/89/c39f5962a8ec9fad6362c589456fc9473cffe7dc88728cc8480548d83ef7/casadi-3.8.2-cp311-abi3-manylinux2014_aarch64.whl", hash = "sha256:9a3e1a496c538000790491bde6e01a8c419c90f7d52b65c89455f37eccef786c", size = 55751073, upload-time = "2026-10-27T06:52:48.991Z" },
+    { url = "https://files.pythonhosted.org/packages/46/9b/435afe0e0448fa8d296a10c132e00c274868b299c9a489279e6a93a05e7a/casadi-3.8.2-cp311-abi3-manylinux2014_i686.whl", hash = "sha256:4eb2dfd02235d03e2ecb7804a5d7ee27773b163a19e2aaa11df62078a12e29e1", size = 87452528, upload-time = "2026-10-27T06:56:19.056Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/29/50f0e1e8c114813d25463f8753ff9f8a06a7c5358d9890e60950a1acc133/casadi-3.8.2-cp311-abi3-manylinux2014_x86_64.whl", hash = "sha256:e7565f06da49f5d097c57eba0f1f53b86242dd6c876c5aea5193f03364a02a14", size = 92352869, upload-time = "2026-10-27T06:59:51.292Z" },
+    { url = "https://files.pythonhosted.org/packages/05/3e/0fc39562e254e2d6e68e471287ebed5d3982f863851bcad87cb18627a291/casadi-3.8.2-cp311-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:7fd78bd8285ad0e75c0fdb7d5c66407976dd5abceefaec03e7174cd504b48e0e", size = 58388768, upload-time = "2026-10-27T07:01:35.716Z" },
+    { url = "https://files.pythonhosted.org/packages/38/40/43316b36a96786a53c36c52f38eaf88bd5cadb3ce445b931d14cabbcab26/casadi-3.8.2-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:118df1a9ae944a80989849ea5cfa76c20b28e95d6f568c9f989e8c16a66ab1db", size = 93196992, upload-time = "2026-10-27T07:02:51.061Z" },
+    { url = "https://files.pythonhosted.org/packages/47/0a/6acf4ff5ee0039db2a5d69200937ce0500a5fafc94f5c220e8b20b1fd840/casadi-3.8.2-cp311-abi3-win_amd64.whl", hash = "sha256:337365cf40448d368d12cf0b6561604274f8d2a979ef7c0b672086d64188c221", size = 60107861, upload-time = "2026-10-27T07:03:47.822Z" },
 ]
 
 [[package]]
